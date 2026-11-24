@@ -871,6 +871,16 @@ void BufferCache<P>::RecordReadDownload(std::span<const std::pair<DAddr, u64>> r
         }
         if (!copies.empty()) {
             auto staging = runtime.DownloadStagingBuffer(total_size_bytes, true);
+            for (Copy& entry : copies) {
+                Buffer& buffer = slot_buffers[entry.buffer_id];
+                entry.copy.dst_offset += staging.offset;
+                buffer.MarkUsage(entry.copy.src_offset, entry.copy.size);
+                download.copies.push_back(BufferCopy{
+                    .src_offset = buffer.CpuAddr() + entry.copy.src_offset,
+                    .dst_offset = entry.copy.dst_offset,
+                    .size = entry.copy.size,
+                });
+            }
             std::ranges::stable_sort(copies, {}, &Copy::buffer_id);
             boost::container::small_vector<BufferCopy, 16> buffer_copies;
             for (size_t i = 0; i < copies.size();) {
@@ -878,15 +888,7 @@ void BufferCache<P>::RecordReadDownload(std::span<const std::pair<DAddr, u64>> r
                 Buffer& buffer = slot_buffers[buffer_id];
                 buffer_copies.clear();
                 while (i < copies.size() && copies[i].buffer_id == buffer_id) {
-                    Copy& entry = copies[i++];
-                    entry.copy.dst_offset += staging.offset;
-                    buffer.MarkUsage(entry.copy.src_offset, entry.copy.size);
-                    buffer_copies.push_back(entry.copy);
-                    download.copies.push_back(BufferCopy{
-                        .src_offset = buffer.CpuAddr() + entry.copy.src_offset,
-                        .dst_offset = entry.copy.dst_offset,
-                        .size = entry.copy.size,
-                    });
+                    buffer_copies.push_back(copies[i++].copy);
                 }
                 // Mapped buffers too: the GPU thread's later work may write them before the copy
                 // is read.
